@@ -1,0 +1,25 @@
+{
+  "name": "Pulse",
+  "short_name": "Pulse",
+  "description": "A minimalist puzzle game about alignment",
+  "start_url": "index.html",
+  "scope": ".",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#080c1a",
+  "theme_color": "#f0d060",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
