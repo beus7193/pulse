@@ -1,4 +1,4 @@
-name: Build Pulse APK
+name: Build Chimeric APK
 
 on: [push]
 
@@ -25,24 +25,26 @@ jobs:
 
       - name: Create Cordova project
         run: |
-          cordova create cordova-app com.pulse.game "Pulse"
-          cp index.html icon-*.png cordova-app/www/
+          cordova create cordova-app com.chimeric.game "Chimeric"
+          cp index.html cordova-app/www/
+          cp -r icons cordova-app/www/
           cat > cordova-app/config.xml << 'XML'
           <?xml version='1.0' encoding='utf-8'?>
-          <widget id="com.pulse.game" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
-            <name>Pulse</name>
-            <description>A minimalist puzzle game about alignment</description>
-            <author>Pulse Games</author>
+          <widget id="com.chimeric.game" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
+            <name>Chimeric</name>
+            <description>Tactical RPG — capture, fuse, and battle procedurally generated monsters</description>
+            <author>Chimeric Team</author>
             <content src="index.html" />
             <access origin="*" />
             <preference name="Fullscreen" value="true" />
             <preference name="Orientation" value="portrait" />
+            <preference name="DisallowOverscroll" value="true" />
             <platform name="android">
-              <icon src="www/icon-192.png" density="mdpi" />
-              <icon src="www/icon-192.png" density="hdpi" />
-              <icon src="www/icon-512.png" density="xhdpi" />
-              <icon src="www/icon-512.png" density="xxhdpi" />
-              <icon src="www/icon-512.png" density="xxxhdpi" />
+              <icon src="www/icons/icon-192.png" density="mdpi" />
+              <icon src="www/icons/icon-192.png" density="hdpi" />
+              <icon src="www/icons/icon-192.png" density="xhdpi" />
+              <icon src="www/icons/icon-512.png" density="xxhdpi" />
+              <icon src="www/icons/icon-512.png" density="xxxhdpi" />
             </platform>
           </widget>
           XML
@@ -60,5 +62,5 @@ jobs:
       - name: Archive APK
         uses: actions/upload-artifact@v4
         with:
-          name: pulse-debug
+          name: chimeric-debug
           path: cordova-app/platforms/android/app/build/outputs/apk/debug/*.apk
