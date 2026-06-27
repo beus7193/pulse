@@ -509,15 +509,19 @@ function render(now) {
 
   // Victory text
   if (victoryText) {
-    const alpha = 0.7 + Math.sin(now / 200) * 0.3;
-    ctx.fillStyle = `rgba(240,208,96,${alpha})`;
-    ctx.font = 'bold 28px sans-serif';
+    const tw = cw * 0.8;
+    const th = 52;
+    const tx = (cw - tw) / 2;
+    const ty = (cw - th) / 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.roundRect(tx, ty, tw, th, 14);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 26px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(240,208,96,0.3)';
-    ctx.shadowBlur = 20;
-    ctx.fillText(victoryText, cw / 2, cw / 2);
-    ctx.shadowBlur = 0;
+    ctx.fillText(victoryText, cw / 2, cw / 2 + 1);
   }
 
   // Ripples
