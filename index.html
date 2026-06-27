@@ -30,8 +30,16 @@ h1{
   letter-spacing:4px;
   text-transform:uppercase;
   font-weight:300;
-  margin-bottom:8px;
+  margin-bottom:2px;
 }
+.subtitle{
+  color:rgba(255,255,255,0.25);
+  font-size:12px;
+  letter-spacing:1px;
+  margin-bottom:8px;
+  transition:color 0.3s;
+}
+.subtitle.active{color:#f0d060}
 .stats{
   display:flex;
   justify-content:space-between;
@@ -66,6 +74,46 @@ canvas{
   touch-action:none;
   cursor:pointer;
 }
+.mode-row{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  margin:8px auto 0;
+}
+.switch{
+  position:relative;
+  width:40px;
+  height:22px;
+  flex-shrink:0;
+}
+.switch input{opacity:0;width:0;height:0}
+.slider{
+  position:absolute;
+  cursor:pointer;
+  inset:0;
+  background:rgba(255,255,255,0.08);
+  border-radius:22px;
+  transition:0.3s;
+}
+.slider::before{
+  content:'';
+  position:absolute;
+  height:16px;width:16px;
+  left:3px;bottom:3px;
+  background:#f0d060;
+  border-radius:50%;
+  transition:0.3s;
+}
+.switch input:checked + .slider{background:rgba(240,208,96,0.25)}
+.switch input:checked + .slider::before{transform:translateX(18px)}
+.mode-label{
+  color:rgba(255,255,255,0.15);
+  font-size:11px;
+  letter-spacing:0.5px;
+  transition:color 0.3s;
+}
+.mode-label.on{color:rgba(240,208,96,0.6)}
 .controls{
   display:flex;
   gap:8px;
@@ -135,6 +183,8 @@ canvas{
 }
 .actions button:hover{background:rgba(240,208,96,0.2)}
 .actions button:active{transform:scale(0.95)}
+.actions button:disabled{opacity:0.3;cursor:default}
+.actions button:disabled:hover{background:rgba(240,208,96,0.1)}
 .hint{
   margin-top:8px;
   color:rgba(255,255,255,0.1);
@@ -146,13 +196,21 @@ canvas{
 <body>
 <div class="container">
   <h1>Pulse</h1>
+  <div class="subtitle" id="subtitle">Remove all pulses</div>
   <div class="stats">
-    <div>Pulsed <span id="align-count">0</span>/<span id="cell-total">9</span></div>
+    <div><span id="stat-prefix">Pulses</span> <span id="pulse-count">0</span></div>
   </div>
   <div class="progress-wrap">
     <div class="progress-bar" id="progress-bar"></div>
   </div>
   <canvas id="grid"></canvas>
+  <div class="mode-row">
+    <label class="switch">
+      <input type="checkbox" id="mode-switch">
+      <span class="slider"></span>
+    </label>
+    <span class="mode-label" id="mode-label">clear</span>
+  </div>
   <div class="controls">
     <label>Grid <select id="size-select"><option value="3" selected>3×3</option><option value="4">4×4</option><option value="5">5×5</option><option value="6">6×6</option></select></label>
     <label>States <select id="state-select"><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select><span class="badge" id="unsolvable-badge">!</span></label>
@@ -164,28 +222,127 @@ canvas{
   <div class="hint" id="hint-msg">tap a cell — its row and column pulse too</div>
 </div>
 <script>
-let GRID = 3;
-let STATES = 3;
-let CELL = 68;
-
-const canvas = document.getElementById('grid');
-const ctx = canvas.getContext('2d');
-const COLORS = [];
-let grid = [];
-let busy = false;
-let particles = [];
-let ripples = [];
-let highlights = [];
-let RADII = [];
-let hintCell = null;
-
-// ---- Solvabilite ----
 const SOLVABLE = {
   '3,3':true,'4,4':true,'4,5':true,'5,5':true,'6,3':true,'6,4':true,'6,6':true
 };
 function isSolvable(g, s) { return !!SOLVABLE[g+','+s]; }
 
-// ---- Solveur lineaire modulaire ----
+let GRID = 3;
+let STATES = 3;
+let CELL = 68;
+let grid = [];
+let goalMode = 'clear'; // 'clear' or 'fill'
+let particles = [];
+let ripples = [];
+let highlights = [];
+let RADII = [];
+let COLORS = [];
+let busy = false;
+let hintCell = null;
+let victoryText = '';
+
+function buildColors(n) {
+  COLORS.length = 0;
+  const stops = [
+    [0.08,0.08,0.22],[0.06,0.22,0.50],[0.14,0.40,0.78],
+    [0.31,0.66,0.88],[0.94,0.82,0.38],[0.98,0.72,0.25]
+  ];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1 || 1);
+    const idx = t * (stops.length - 1);
+    const a = Math.floor(idx), b = Math.min(a + 1, stops.length - 1), f = idx - a;
+    COLORS.push(`rgb(${Math.round((stops[a][0]+(stops[b][0]-stops[a][0])*f)*255)},${Math.round((stops[a][1]+(stops[b][1]-stops[a][1])*f)*255)},${Math.round((stops[a][2]+(stops[b][2]-stops[a][2])*f)*255)})`);
+  }
+}
+
+const canvas = document.getElementById('grid');
+const ctx = canvas.getContext('2d');
+
+function setMode(mode) {
+  goalMode = mode;
+  document.getElementById('mode-switch').checked = mode === 'fill';
+  document.getElementById('mode-label').textContent = mode === 'clear' ? 'clear' : 'fill';
+  document.getElementById('mode-label').className = 'mode-label' + (mode === 'fill' ? ' on' : '');
+  document.getElementById('subtitle').textContent = mode === 'clear' ? 'Remove all pulses' : 'Fill the grid with pulse';
+  document.getElementById('subtitle').className = 'subtitle' + (mode === 'fill' ? ' active' : '');
+  updateUI();
+}
+
+function setup() {
+  GRID = parseInt(document.getElementById('size-select').value);
+  STATES = parseInt(document.getElementById('state-select').value);
+  CELL = Math.min(68, Math.floor(320 / GRID));
+  const cw = GRID * CELL + 20;
+  canvas.width = cw; canvas.height = cw;
+  buildColors(STATES);
+  RADII = [];
+  for (let i = 1; i <= STATES; i++)
+    RADII.push(Math.max(3, (CELL / 2 - 4) * (i / STATES)));
+  hintCell = null;
+  const solvable = isSolvable(GRID, STATES);
+  document.getElementById('unsolvable-badge').classList.toggle('show', !solvable);
+  document.getElementById('hint-msg').textContent = solvable
+    ? 'tap a cell — its row and column pulse too'
+    : 'not solvable for this combo — try another';
+  document.getElementById('hint-btn').disabled = !solvable;
+  document.getElementById('hint-btn').style.opacity = solvable ? 1 : 0.3;
+  init();
+  updateUI();
+}
+
+function init() {
+  const N = GRID, mod = STATES;
+  do {
+    grid = [];
+    for (let r = 0; r < N; r++) {
+      grid[r] = [];
+      for (let c = 0; c < N; c++)
+        grid[r][c] = Math.floor(Math.random() * mod) + 1;
+    }
+    const maxCount = grid.flat().filter(v => v === mod).length;
+    if (maxCount >= 2 && maxCount <= N * N - 2) break;
+  } while (true);
+}
+
+function tap(r, c) {
+  if (busy) return;
+  grid[r][c] = (grid[r][c] % STATES) + 1;
+  for (let i = 0; i < GRID; i++) {
+    if (i !== c) grid[r][i] = (grid[r][i] % STATES) + 1;
+    if (i !== r) grid[i][c] = (grid[i][c] % STATES) + 1;
+  }
+  ripples.push({x:c,y:r,t:performance.now(),duration:400});
+  highlights.push({r,c,t:performance.now()});
+  scatter(r, c, 4, COLORS[STATES-1]);
+  hintCell = null;
+  updateUI();
+}
+
+function updateUI() {
+  const total = GRID * GRID;
+  const pulses = grid.flat().filter(v => v === STATES).length;
+  const won = goalMode === 'clear' ? pulses === 0 : pulses === total;
+  document.getElementById('stat-prefix').textContent = goalMode === 'clear' ? 'Pulses' : 'Pulsed';
+  document.getElementById('pulse-count').textContent = goalMode === 'clear' ? pulses : pulses + '/' + total;
+  const pct = goalMode === 'clear' ? (total - pulses) / total * 100 : pulses / total * 100;
+  document.getElementById('progress-bar').style.width = pct + '%';
+  if (!won || busy) return;
+  busy = true;
+  victoryText = goalMode === 'clear' ? '✨ CLEAR! ✨' : '✨ PULSE! ✨';
+  let delay = 0;
+  for (let r = 0; r < GRID; r++) {
+    for (let c = 0; c < GRID; c++) {
+      const row = r, col = c;
+      setTimeout(() => {
+        scatter(row, col, 20, `hsl(${40+Math.random()*20},95%,${60+Math.random()*25}%)`);
+        ripples.push({x:col,y:row,t:performance.now(),duration:500});
+      }, delay);
+      delay += 30;
+    }
+  }
+  document.getElementById('hint-msg').textContent = 'tap anywhere on the grid to continue';
+}
+
 function modInv(a, m) {
   a = ((a % m) + m) % m;
   let g = a, x = 1, y = 0, m0 = m;
@@ -197,30 +354,21 @@ function modInv(a, m) {
   return ((x % m0) + m0) % m0;
 }
 
-function solveGrid() {
-  const N = GRID;
-  const M = N * N;
-  const mod = STATES;
-  // Build matrix (M x M)
-  const mat = [];
-  const rhs = [];
+function solveGrid(target) {
+  const N = GRID, M = N * N, mod = STATES;
+  const mat = [], rhs = [];
   for (let p = 0; p < N; p++) {
     for (let q = 0; q < N; q++) {
       const row = [];
-      for (let i = 0; i < N; i++) {
-        for (let j = 0; j < N; j++) {
-          let val = 0;
-          if (i === p || j === q) val = 1;
-          row.push(val % mod);
-        }
-      }
+      for (let i = 0; i < N; i++)
+        for (let j = 0; j < N; j++)
+          row.push((i === p || j === q) ? 1 : 0);
       mat.push(row);
-      let target = (mod - grid[p][q] + mod) % mod;
-      rhs.push(target % mod);
+      const cur = (grid[p][q] - 1 + mod) % mod;
+      const tgt = (target - 1 + mod) % mod;
+      rhs.push((tgt - cur + mod) % mod);
     }
   }
-
-  // Gaussian elimination over Z_mod
   const aug = mat.map((r, i) => [...r, rhs[i]]);
   let rank = 0;
   for (let col = 0; col < M && rank < M; col++) {
@@ -241,145 +389,33 @@ function solveGrid() {
     }
     rank++;
   }
-
-  const sol = aug.map(r => ((r[M] % mod) + mod) % mod);
-  return sol;
+  return aug.map(r => ((r[M] % mod) + mod) % mod);
 }
 
 function getSuggestion() {
-  const N = GRID;
-  const mod = STATES;
-  const sol = solveGrid();
-  const solMat = [];
+  const N = GRID, mod = STATES;
+  const target = goalMode === 'clear' ? 1 : mod;
+  let sol;
+  try { sol = solveGrid(target); } catch(e) { return null; }
+  let best = null, bestScore = -Infinity;
   for (let r = 0; r < N; r++) {
-    solMat[r] = [];
-    for (let c = 0; c < N; c++) solMat[r][c] = sol[r * N + c];
+    for (let c = 0; c < N; c++) {
+      const t = sol[r * N + c];
+      if (t === 0) continue;
+      const after = grid.map(row => [...row]);
+      after[r][c] = (after[r][c] % mod) + 1;
+      for (let i = 0; i < N; i++) {
+        if (i !== c) after[r][i] = (after[r][i] % mod) + 1;
+        if (i !== r) after[i][c] = (after[i][c] % mod) + 1;
+      }
+      const before = grid.flat().filter(v => v === mod).length;
+      const afterP = after.flat().filter(v => v === mod).length;
+      const delta = before - afterP;
+      const score = goalMode === 'clear' ? delta : -delta;
+      if (score > bestScore) { bestScore = score; best = {r,c}; }
+    }
   }
-  // Find cells where sol[r][c] != 0
-  let best = null;
-  for (let r = 0; r < N; r++)
-    for (let c = 0; c < N; c++)
-      if (solMat[r][c] !== 0) best = { r, c };
   return best;
-}
-
-// ---- Build colors ----
-function buildColors(n) {
-  COLORS.length = 0;
-  const stops = [
-    [0.08, 0.08, 0.22],
-    [0.06, 0.22, 0.50],
-    [0.14, 0.40, 0.78],
-    [0.31, 0.66, 0.88],
-    [0.94, 0.82, 0.38],
-    [0.98, 0.72, 0.25]
-  ];
-  for (let i = 0; i < n; i++) {
-    const t = i / (n - 1 || 1);
-    const idx = t * (stops.length - 1);
-    const a = Math.floor(idx);
-    const b = Math.min(a + 1, stops.length - 1);
-    const f = idx - a;
-    const r = Math.round((stops[a][0] + (stops[b][0]-stops[a][0])*f)*255);
-    const g = Math.round((stops[a][1] + (stops[b][1]-stops[a][1])*f)*255);
-    const bl = Math.round((stops[a][2] + (stops[b][2]-stops[a][2])*f)*255);
-    COLORS.push(`rgb(${r},${g},${bl})`);
-  }
-}
-
-// ---- Setup ----
-function setup() {
-  GRID = parseInt(document.getElementById('size-select').value);
-  STATES = parseInt(document.getElementById('state-select').value);
-  CELL = Math.min(68, Math.floor(320 / GRID));
-  const cw = GRID * CELL + 20;
-  canvas.width = cw;
-  canvas.height = cw;
-  document.getElementById('cell-total').textContent = GRID * GRID;
-  buildColors(STATES);
-  RADII = [];
-  for (let i = 1; i <= STATES; i++)
-    RADII.push(Math.max(4, (CELL / 2 - 4) * (i / STATES)));
-  hintCell = null;
-
-  const solvable = isSolvable(GRID, STATES);
-  const badge = document.getElementById('unsolvable-badge');
-  badge.classList.toggle('show', !solvable);
-  document.getElementById('hint-msg').textContent = solvable
-    ? 'solvable! use Hint if stuck'
-    : '⚠️ this combination is not generally solvable — try another';
-
-  document.getElementById('hint-btn').disabled = !solvable;
-  document.getElementById('hint-btn').style.opacity = solvable ? 1 : 0.3;
-
-  init();
-  checkPulse();
-}
-
-function init() {
-  const N = GRID; const mod = STATES;
-  let attempts = 0;
-  do {
-    grid = [];
-    for (let r = 0; r < N; r++) {
-      grid[r] = [];
-      for (let c = 0; c < N; c++)
-        grid[r][c] = Math.floor(Math.random() * mod) + 1;
-    }
-    attempts++;
-    if (!isSolvable(N, mod)) break;
-  } while (attempts < 50 && !isSolvableGrid());
-}
-
-function isSolvableGrid() {
-  if (!isSolvable(GRID, STATES)) return true;
-  try {
-    const sol = solveGrid();
-    return sol.every(v => !isNaN(v));
-  } catch(e) { return false; }
-}
-
-// ---- Gameplay ----
-function tap(r, c) {
-  if (busy) return;
-  grid[r][c] = (grid[r][c] % STATES) + 1;
-  for (let i = 0; i < GRID; i++) {
-    if (i !== c) grid[r][i] = (grid[r][i] % STATES) + 1;
-    if (i !== r) grid[i][c] = (grid[i][c] % STATES) + 1;
-  }
-  ripples.push({x:c,y:r,t:performance.now(),duration:400});
-  highlights.push({r,c,t:performance.now()});
-  scatter(r, c, 6, COLORS[STATES-1]);
-  hintCell = null;
-  checkPulse();
-}
-
-function checkPulse() {
-  let n = 0;
-  const total = GRID * GRID;
-  for (let r = 0; r < GRID; r++)
-    for (let c = 0; c < GRID; c++)
-      if (grid[r][c] === STATES) n++;
-  document.getElementById('align-count').textContent = n;
-  document.getElementById('progress-bar').style.width = (n / total * 100) + '%';
-  if (n < total) return;
-  busy = true;
-  let delay = 0;
-  for (let r = 0; r < GRID; r++) {
-    for (let c = 0; c < GRID; c++) {
-      const row = r, col = c;
-      setTimeout(() => {
-        scatter(row, col, 16, `hsl(${40+Math.random()*20},95%,${60+Math.random()*25}%)`);
-        ripples.push({x:col,y:row,t:performance.now(),duration:500});
-      }, delay);
-      delay += 30;
-    }
-  }
-  setTimeout(() => {
-    init();
-    busy = false;
-    checkPulse();
-  }, delay + 500);
 }
 
 function scatter(r, c, n, color) {
@@ -389,14 +425,10 @@ function scatter(r, c, n, color) {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2;
     const s = 50 + Math.random() * 140;
-    particles.push({
-      x:cx, y:cy, vx:Math.cos(a)*s, vy:Math.sin(a)*s,
-      life:1, size:2+Math.random()*3, color, gy:50
-    });
+    particles.push({x:cx,y:cy,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,size:2+Math.random()*3,color,gy:50});
   }
 }
 
-// ---- Render ----
 function render(now) {
   const PAD = 10;
   const cw = canvas.width;
@@ -410,6 +442,7 @@ function render(now) {
       const cy = PAD + r * CELL + CELL / 2;
       const v = grid[r][c];
       const rad = RADII[v - 1];
+      const isPulse = v === STATES;
 
       let flash = 0;
       for (const h of highlights) {
@@ -420,23 +453,31 @@ function render(now) {
 
       const isHint = hintCell && hintCell.r === r && hintCell.c === c;
 
-      if (v === STATES) {
+      if (isPulse) {
         const pulse = 1 + Math.sin(now / 300 + r * 2.3 + c * 2.7) * 0.1;
-        const g = ctx.createRadialGradient(cx, cy, rad * 0.4, cx, cy, rad * (2.4 + (isHint?1.5:0)) * pulse);
+        const ext = isHint ? 1.5 : 0;
+        const g = ctx.createRadialGradient(cx, cy, rad * 0.4, cx, cy, rad * (2.4 + ext) * pulse);
         g.addColorStop(0, `rgba(240,208,96,${0.25+flash*0.2+(isHint?0.3:0)})`);
         g.addColorStop(0.5, `rgba(240,208,96,${0.06+flash*0.1+(isHint?0.15:0)})`);
         g.addColorStop(1, 'rgba(240,208,96,0)');
         ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(cx, cy, rad * (2.4 + (isHint?1.5:0)) * pulse, 0, Math.PI * 2);
+        ctx.arc(cx, cy, rad * (2.4 + ext) * pulse, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      if (isHint) {
-        ctx.strokeStyle = `rgba(240,208,96,${0.4+Math.sin(now/200)*0.3})`;
+      if (isHint && !isPulse) {
+        ctx.strokeStyle = `rgba(240,208,96,${0.3+Math.sin(now/200)*0.2})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, rad + 6, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (isHint && isPulse) {
+        ctx.strokeStyle = `rgba(240,208,96,${0.5+Math.sin(now/200)*0.3})`;
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.arc(cx, cy, rad + 8, 0, Math.PI * 2);
+        ctx.arc(cx, cy, rad + 9, 0, Math.PI * 2);
         ctx.stroke();
       }
 
@@ -453,22 +494,33 @@ function render(now) {
       ctx.arc(cx, cy, rad + 2, 0, Math.PI * 2);
       ctx.stroke();
 
-      if (v < STATES) {
-        ctx.fillStyle = `rgba(255,255,255,${0.06 + v * 0.04})`;
-        ctx.font = '10px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(v, cx, cy + 1);
-      } else {
+      if (isPulse) {
         ctx.fillStyle = 'rgba(255,255,255,0.6)';
         ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('✦', cx, cy + 0.5);
+      } else {
+        ctx.fillStyle = `rgba(255,255,255,${0.06 + v * 0.04})`;
+        ctx.font = '10px sans-serif';
       }
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(isPulse ? '✦' : v, cx, cy + (isPulse ? 0.5 : 1));
     }
   }
 
+  // Victory text
+  if (victoryText) {
+    const alpha = 0.7 + Math.sin(now / 200) * 0.3;
+    ctx.fillStyle = `rgba(240,208,96,${alpha})`;
+    ctx.font = 'bold 28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(240,208,96,0.3)';
+    ctx.shadowBlur = 20;
+    ctx.fillText(victoryText, cw / 2, cw / 2);
+    ctx.shadowBlur = 0;
+  }
+
+  // Ripples
   for (let i = ripples.length - 1; i >= 0; i--) {
     const w = ripples[i];
     const dt = now - w.t;
@@ -484,6 +536,7 @@ function render(now) {
     ctx.stroke();
   }
 
+  // Particles
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.x += p.vx * 0.016;
@@ -503,7 +556,6 @@ function render(now) {
   requestAnimationFrame(render);
 }
 
-// ---- Input ----
 function getCell(e) {
   const PAD = 10;
   const rect = canvas.getBoundingClientRect();
@@ -516,50 +568,69 @@ function getCell(e) {
   return {r:Math.floor((my-PAD)/CELL),c:Math.floor((mx-PAD)/CELL)};
 }
 
+function resetAfterVictory() {
+  if (!busy || !victoryText) return;
+  victoryText = '';
+  busy = false;
+  hintCell = null;
+  init();
+  updateUI();
+  document.getElementById('hint-msg').textContent = 'tap a cell — its row and column pulse too';
+}
+
 canvas.addEventListener('touchstart', e => { e.preventDefault();
+  if (victoryText) { resetAfterVictory(); return; }
   if (!busy) { const cell = getCell(e); if (cell) tap(cell.r, cell.c); }
 });
 canvas.addEventListener('mousedown', e => {
+  if (victoryText) { resetAfterVictory(); return; }
   if (!busy) { const cell = getCell(e); if (cell) tap(cell.r, cell.c); }
 });
 
-// ---- Controls ----
-document.getElementById('hint-btn').addEventListener('click', () => {
-  if (!isSolvable(GRID, STATES)) return;
-  const s = getSuggestion();
-  if (s) {
-    hintCell = s;
-    document.getElementById('hint-msg').textContent =
-      `💡 suggestion: tap the highlighted cell (row ${s.r+1}, col ${s.c+1})`;
+document.getElementById('mode-switch').addEventListener('change', function() {
+  setMode(this.checked ? 'fill' : 'clear');
+  if (victoryText) {
+    victoryText = '';
+    busy = false;
+    hintCell = null;
+    init();
+    updateUI();
+    document.getElementById('hint-msg').textContent = 'tap a cell — its row and column pulse too';
   }
 });
 
-document.getElementById('reset-btn').addEventListener('click', () => {
-  hintCell = null;
-  init();
-  checkPulse();
+document.getElementById('hint-btn').addEventListener('click', () => {
+  if (!isSolvable(GRID, STATES) || victoryText) return;
+  const s = getSuggestion();
+  if (s) { hintCell = s;
+    document.getElementById('hint-msg').textContent =
+      `💡 tap (${s.r+1}, ${s.c+1})`;
+  }
 });
-
+document.getElementById('reset-btn').addEventListener('click', () => {
+  victoryText = ''; busy = false; hintCell = null; init(); updateUI();
+  document.getElementById('hint-msg').textContent = 'tap a cell — its row and column pulse too';
+});
 document.getElementById('size-select').addEventListener('change', () => {
   const g = parseInt(document.getElementById('size-select').value);
-  const maxValid = {3:3, 4:5, 5:5, 6:6}[g] || 3;
-  const stateSel = document.getElementById('state-select');
-  if (parseInt(stateSel.value) > maxValid || !isSolvable(g, parseInt(stateSel.value)))
-    stateSel.value = maxValid;
+  const maxValid = {3:3,4:5,5:5,6:6}[g]||3;
+  const sel = document.getElementById('state-select');
+  if (parseInt(sel.value) > maxValid || !isSolvable(g, parseInt(sel.value)))
+    sel.value = maxValid;
   setup();
 });
 document.getElementById('state-select').addEventListener('change', () => {
   const s = parseInt(document.getElementById('state-select').value);
-  const sizeSel = document.getElementById('size-select');
-  if (!isSolvable(parseInt(sizeSel.value), s)) {
-    const validSizes = [];
-    for (let g = 3; g <= 6; g++) if (isSolvable(g, s)) validSizes.push(g);
-    if (validSizes.length) sizeSel.value = validSizes[0];
+  const sel = document.getElementById('size-select');
+  if (!isSolvable(parseInt(sel.value), s)) {
+    const valid = [];
+    for (let g = 3; g <= 6; g++) if (isSolvable(g, s)) valid.push(g);
+    if (valid.length) sel.value = valid[0];
   }
   setup();
 });
 
-// ---- Start ----
+setMode('fill');
 setup();
 requestAnimationFrame(render);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
